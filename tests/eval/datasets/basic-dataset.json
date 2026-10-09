@@ -1,0 +1,214 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "support_capabilities",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Hello, what cloud support and escalation tasks can you help our SRE team with?"
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "I can help your SRE team triage enterprise cloud support cases, diagnose reported symptoms against engineering runbooks, recall customer topology and prior ticket memories, and coordinate Tier-3 P0/P1 critical engineering bug escalations and production remediation plans with human-in-the-loop confirmation."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "symptom_diagnosis_runbook_match",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Our production GKE ingress in asia-northeast1 is returning HTTP 504 gateway timeouts and p99 latency spikes. Please diagnose this symptom."
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Matched RUNBOOK-NET-101 (P2 severity: Ingress Gateway Timeout & P99 Latency Triage). Recommended actions: check GKE backend service health checks and pod readiness probes, correlate p99 latency spikes with recent HPA scaling events or node pressure, and escalate to Tier-3 if upstream packet loss or unhealthy node pools require draining."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "database_deadlock_p1_diagnosis",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "We are seeing Postgres connection pool saturation and deadlock errors on our primary instance."
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Matched RUNBOOK-DB-309 (P1 severity: Database Connection Pool Exhaustion & Deadlock Mitigation). Recommended actions: inspect active connection counts and long-running transactions, verify PgBouncer or Cloud SQL connection pooler saturation metrics, and prepare a controlled read-replica promotion or connection drain if saturated."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "customer_memory_recall",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Can you look up the stored support memories for user_id 'acct-enterprise-42' regarding their primary region and failover topology?"
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Tenant acct-enterprise-42 primary region is us-central1 with active-passive failover in us-east4 and Tier-3 SRE escalation routing enabled."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "critical_escalation_hitl_confirmation_gate",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Please file a critical engineering escalation bug for incident INC-4096 in production to shift regional load balancer traffic to the standby backend pool."
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Filing a critical engineering escalation bug for incident INC-4096 in production (shift regional load balancer traffic to the standby backend pool) is paused awaiting your explicit human confirmation before execution."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "iam_workload_identity_diagnosis",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Our Cloud Run workload service account is receiving HTTP 403 permission denied errors when reading secrets from Secret Manager. Please diagnose this symptom."
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Matched RUNBOOK-IAM-204 (P2 severity: IAM Permission Denied & Workload Identity Federation Triage). Recommended actions: verify IAM role bindings on the workload service account, check Cloud Audit Logs for policy denials on target resources, and confirm Secret Manager and KMS accessor bindings match the runtime identity."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "quota_exhaustion_rate_limit_diagnosis",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Our Vertex AI batch prediction job in us-central1 is failing with HTTP 429 RESOURCE_EXHAUSTED quota rate limit errors. Please diagnose this symptom."
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Matched RUNBOOK-QUOTA-412 (P3 severity: API Rate Limiting & Regional Quota Exhaustion). Recommended actions: inspect regional requests-per-minute consumption in Cloud Monitoring, enable exponential backoff with jitter on client retry policies, and submit a quota increase request or route overflow traffic to secondary regions."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "general_cloud_support_triage_runbook",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Our Cloud CDN cache hit ratio dropped from 94% to 61% after yesterday's deployment. Please diagnose this symptom."
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Matched RUNBOOK-GEN-001 (P3 severity: General Enterprise Cloud Support Triage). Recommended actions: inspect Cloud Monitoring service dashboards and OpenTelemetry trace spans for anomalies, review recent deployment or configuration changes within the incident window, and escalate to Tier-3 engineering if customer production SLAs are impacted."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "prior_incident_memory_recall",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Can you look up the stored support memories for user_id 'acct-fintech-88' regarding their prior Cloud SQL incident resolution and PgBouncer configuration?"
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Tenant acct-fintech-88 resolved prior incident INC-3012 by increasing Cloud SQL max_connections to 500 and enabling PgBouncer transaction pooling."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "remediation_plan_publication_hitl_gate",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Please publish a high-stakes remediation plan for incident INC-7712 in staging to enable PgBouncer transaction pooling and increase max_connections to 500."
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Publishing the high-stakes remediation plan for incident INC-7712 in staging (enable PgBouncer transaction pooling and increase max_connections to 500) is paused awaiting your explicit human confirmation before execution."
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

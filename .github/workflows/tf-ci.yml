@@ -1,0 +1,129 @@
+name: "Terraform PR CI"
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "terraform/**"
+      - ".github/workflows/tf-ci.yml"
+
+concurrency:
+  group: tf-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Always runs and needs no GCP access, so formatting and configuration errors are caught
+  # even before `make bootstrap` (including in the template repository itself).
+  terraform-static:
+    name: "Terraform Static Checks"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+
+      - name: Terraform Format Check
+        run: terraform -chdir=terraform fmt -check -recursive -diff
+
+      - name: Terraform Init (without backend)
+        run: terraform -chdir=terraform init -backend=false -input=false
+
+      - name: Terraform Validate
+        run: terraform -chdir=terraform validate -no-color
+
+  terraform-plan:
+    name: "Terraform Plan"
+    # Skips cleanly until `make bootstrap` has set the GCP repository variables, for fork PRs
+    # (no OIDC token for WIF, no permission to comment) and for Dependabot PRs (same gate as
+    # the other GCP workflows: automated dependency bumps never receive cloud credentials).
+    if: >-
+      vars.GCP_WIF_PROVIDER != '' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    # Covers the 300s state-lock wait plus init and plan.
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      RESOURCE_PREFIX: ${{ vars.RESOURCE_PREFIX }}
+      TF_IN_AUTOMATION: "true"
+      TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+      TF_VAR_project_number: ${{ vars.GCP_PROJECT_NUMBER }}
+      TF_VAR_region: ${{ vars.GCP_REGION }}
+      TF_VAR_resource_prefix: ${{ vars.RESOURCE_PREFIX }}
+      TF_VAR_github_org: ${{ github.repository_owner }}
+      TF_VAR_github_repo: ${{ github.event.repository.name }}
+      TF_VAR_deployment_target: ${{ vars.DEPLOYMENT_TARGET || 'agent_runtime' }}
+      TF_VAR_enable_gemini_enterprise: ${{ vars.GEMINI_ENTERPRISE_APP_ID != '' }}
+      # Must stay "true": the variable defaults to false, which would plan the destruction of
+      # the WIF pool and CI/CD service account this workflow authenticates with.
+      TF_VAR_enable_cicd: "true"
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Authenticate to Google Cloud via WIF
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_CICD_SA }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        id: init
+        run: terraform -chdir=terraform init -input=false -backend-config="bucket=${GCP_PROJECT_ID}-${RESOURCE_PREFIX}-tfstate"
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform -chdir=terraform plan -no-color -input=false -lock-timeout=300s -out=tfplan
+          terraform -chdir=terraform show -no-color tfplan > "${RUNNER_TEMP}/tfplan.txt"
+          # Bounded so the env var stays far below the per-variable limit; post_pr_comment.js
+          # truncates to 60K characters and appends a pointer to the full log.
+          PLAN_OUTPUT="$(head -c 65000 "${RUNNER_TEMP}/tfplan.txt")"
+          EOF_MARKER="EOF_PLAN_$(openssl rand -hex 8 2>/dev/null || date +%s)"
+          {
+            echo "PLAN_TEXT<<${EOF_MARKER}"
+            echo "${PLAN_OUTPUT}"
+            echo "${EOF_MARKER}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Post Plan Summary to PR
+        if: ${{ !cancelled() }}
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          STAGE_DIR: terraform
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          FMT_OUTCOME: "success"
+          INIT_OUTCOME: ${{ steps.init.outcome }}
+        with:
+          script: |
+            const postPrComment = require('./terraform/scripts/ci/post_pr_comment.js');
+            await postPrComment({ github, context, core });

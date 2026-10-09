@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: the offline suite only needs to read the checked out tree.
+permissions:
+  contents: read
+
+jobs:
+  offline-ci:
+    name: Fast Offline CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The offline suite never pushes, so the checkout token must not persist.
+          persist-credentials: false
+
+      - name: Set up Astral uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          version: "0.12.5"
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run Ruff Lint Check
+        run: uv run ruff check .
+
+      - name: Run Ruff Format Check
+        run: uv run ruff format --check .
+
+      - name: Run Mypy Type Check
+        run: uv run mypy app tests scripts --strict
+
+      - name: Run Pytest with Coverage
+        run: uv run pytest --cov --cov-report=term-missing
+
+  repo-lint:
+    name: Shell & Workflow Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Astral uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          version: "0.12.5"
+          python-version: "3.12"
+
+      - name: Run ShellCheck
+        run: uvx --from shellcheck-py==0.11.0.1 shellcheck scripts/*.sh
+
+      - name: Run actionlint
+        run: uvx --from actionlint-py==1.7.12.25 --with shellcheck-py==0.11.0.1 actionlint

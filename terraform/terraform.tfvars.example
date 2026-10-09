@@ -1,0 +1,27 @@
+# Example inputs for running Terraform by hand. scripts/bootstrap_gcp.sh and the GitHub
+# workflows pass the same values as TF_VAR_* environment variables and do not need this file.
+#
+#   cp terraform/terraform.tfvars.example terraform/terraform.tfvars   # git-ignored
+#   terraform -chdir=terraform init -backend-config="bucket=<project_id>-<resource_prefix>-tfstate"
+#   terraform -chdir=terraform plan
+#
+# Delete terraform.tfvars afterwards: it overrides TF_VAR_* values, so bootstrap_gcp.sh refuses
+# to run while it exists. Every value below is a placeholder.
+
+project_id      = "your-gcp-project-id"
+project_number  = "123456789012"
+region          = "asia-northeast1"
+resource_prefix = "my-agent"
+
+# Workload Identity Federation trust (used only when enable_cicd = true).
+github_org  = "your-github-org"
+github_repo = "your-agent-repo"
+
+# Keep true for any project whose GitHub workflows authenticate through WIF. Use false only
+# for projects that never had CI/CD (e.g. a customer handoff with bootstrap --no-cicd).
+# WARNING: switching an existing CI/CD project to false destroys the WIF pool and CI/CD SA.
+enable_cicd = true
+
+deployment_target        = "agent_runtime" # or "cloud_run"
+enable_gemini_enterprise = false
+additional_services      = []

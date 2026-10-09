@@ -1,0 +1,186 @@
+name: "AI PR Review Agent"
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      # The review definition itself must retrigger the review, and so must the
+      # standards it cites, since a rule change alters every verdict. CLAUDE.md
+      # counts as both: Claude Code loads it into the reviewer's context.
+      - ".github/workflows/**"
+      - ".github/prompts/**"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "app/**"
+      - "tests/**"
+      - "scripts/**"
+      - "terraform/**"
+      - "pyproject.toml"
+      - "ruff.toml"
+
+# Every GitHub mutation happens in the final "Publish Review" step, so cancelling a
+# run in flight can no longer leave half-posted comments behind.
+concurrency:
+  group: review-agent-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  ai-review:
+    name: "Automated Code Review"
+    # Skip cleanly instead of failing until `make bootstrap` has set the GCP_*
+    # repository variables, and for fork or Dependabot pull requests, which get
+    # neither an OIDC token for Workload Identity Federation nor a write-scoped
+    # GITHUB_TOKEN.
+    if: >-
+      vars.GCP_WIF_PROVIDER != '' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          # Nothing here pushes; the publisher authenticates with an explicit GH_TOKEN.
+          persist-credentials: false
+
+      - name: Authenticate to Google Cloud via WIF
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_CICD_SA }}
+
+      # Carry the previous verdict forward so repeated runs converge instead of
+      # surfacing a different arbitrary subset of the same findings each time.
+      - name: Load Previous Review State
+        id: previous
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python3 -m scripts.ci.publish_review load-previous \
+            --pr "${PR_NUMBER}" \
+            --out previous-findings.json
+
+      - name: Compose Review Prompt
+        id: compose
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          DELIM="EOF_$(openssl rand -hex 8)"
+          {
+            echo "content<<${DELIM}"
+            cat .github/prompts/review-instructions.md
+            echo ""
+            echo "## Run Context"
+            echo ""
+            echo "- Pull request number: ${PR_NUMBER}"
+            echo "- Head commit under review: ${HEAD_SHA}"
+            echo ""
+            echo "## Findings From The Previous Run"
+            echo ""
+            echo "Carry every entry below forward verbatim if it is still unresolved."
+            echo ""
+            echo '```json'
+            cat previous-findings.json
+            echo ""
+            echo '```'
+            echo "${DELIM}"
+          } >> "$GITHUB_OUTPUT"
+
+      # The publisher runs after the agent and holds a write-scoped token, so it
+      # must not be loaded from the workspace the agent can edit. The agent's whole
+      # input is attacker-controlled text (the diff, the title), and it is granted
+      # an unrestricted Write tool.
+      #
+      # Copying alone would not be enough: RUNNER_TEMP is exported into every step,
+      # so the agent could write the staged copy just as easily. The digest recorded
+      # here is what closes the path, because a step's outputs are frozen when the
+      # step ends — before the agent starts — and the publish step refuses to run
+      # unless the tree still matches.
+      #
+      # The digest covers the whole staging directory rather than only scripts/:
+      # `python3 -m` puts the working directory first on sys.path, so a planted
+      # json.py or logging.py next to scripts/ would otherwise shadow the stdlib.
+      - name: Stage The Publisher Outside The Workspace
+        id: stage
+        run: |
+          mkdir -p "${RUNNER_TEMP}/publisher"
+          cp -R scripts "${RUNNER_TEMP}/publisher/scripts"
+          cd "${RUNNER_TEMP}/publisher"
+          digest=$(find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum)
+          env_digest=$(cat "$GITHUB_ENV" "$GITHUB_PATH" 2>/dev/null | sha256sum)
+          echo "digest=${digest%% *}" >> "$GITHUB_OUTPUT"
+          echo "env_digest=${env_digest%% *}" >> "$GITHUB_OUTPUT"
+
+      # Claude is read-only towards GitHub here: it inspects the diff and writes
+      # review.json. It is granted no GitHub mutation tool, so it cannot request
+      # changes, cannot approve, and cannot post comments one at a time.
+      - name: Run Claude Code Review
+        id: claude_review
+        uses: anthropics/claude-code-action@9171db3e57d6a3140a37ddc2ba92788584e0ead6 # v1.0.234
+        env:
+          ANTHROPIC_VERTEX_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          CLOUD_ML_REGION: "global"
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          use_vertex: "true"
+          prompt: ${{ steps.compose.outputs.content }}
+          # No inline comment MCP server is granted, so buffering and classification
+          # (which silently no-ops on Vertex anyway, as it requires ANTHROPIC_API_KEY)
+          # are irrelevant to this workflow.
+          classify_inline_comments: "false"
+          claude_args: >-
+            --model ${{ vars.REVIEW_MODEL || 'claude-opus-5-5@default' }}
+            --max-turns 80
+            --allowedTools 'Read,Grep,Glob,Write,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*)'
+
+      # Diagnostic log dump if Claude Code execution fails.
+      - name: Dump Claude Error Log on Failure
+        if: failure() && steps.claude_review.outcome == 'failure'
+        run: |
+          if [ -f "${RUNNER_TEMP}/claude-execution-output.json" ]; then
+            echo "::group::Claude Execution Output"
+            cat "${RUNNER_TEMP}/claude-execution-output.json"
+            echo "::endgroup::"
+          fi
+
+      # The single mutating step. Safe to re-run: the sticky comment is matched by a
+      # hidden marker and inline findings are de-duplicated by fingerprint. It runs
+      # from the staged copy so that only review.json crosses the trust boundary.
+      - name: Publish Review
+        if: always()
+        working-directory: ${{ runner.temp }}/publisher
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          EXPECTED_DIGEST: ${{ steps.stage.outputs.digest }}
+          EXPECTED_ENV_DIGEST: ${{ steps.stage.outputs.env_digest }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          actual=$(find . -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum)
+          if [ "${actual%% *}" != "$EXPECTED_DIGEST" ]; then
+            echo "::error::The staged publisher changed after it was staged; refusing to run it."
+            exit 1
+          fi
+          actual_env=$(cat "$GITHUB_ENV" "$GITHUB_PATH" 2>/dev/null | sha256sum)
+          if [ "${actual_env%% *}" != "$EXPECTED_ENV_DIGEST" ]; then
+            echo "::error::The runner environment changed after staging; refusing to run publisher."
+            exit 1
+          fi
+          /usr/bin/python3 -I -m scripts.ci.publish_review publish \
+            --pr "${PR_NUMBER}" \
+            --sha "${HEAD_SHA}" \
+            --findings "${GITHUB_WORKSPACE}/review.json" \
+            --run-url "${RUN_URL}"

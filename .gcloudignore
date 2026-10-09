@@ -1,0 +1,48 @@
+# Files excluded from the source upload used by 'agents-cli deploy' (Agent Runtime builds
+# the Dockerfile remotely from this upload). Keep in sync with .dockerignore.
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Python byte-code and test/linter caches ("**/" also matches nested dirs in Docker)
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Git and GitHub metadata
+.git/
+.gitignore
+.github/
+
+# Development agent, evaluation outputs, and local scratch files
+.agents/
+.claude/
+.gemini/
+.google-agents-cli/
+artifacts/
+scratch/
+
+# Environment and secrets
+.env
+.env.*
+*.local
+
+# Tests, tooling and infrastructure (never shipped in the runtime image)
+tests/
+scripts/
+terraform/
+*.tfstate*
+Makefile
+deployment_metadata.json
+
+# IDE and OS files
+.vscode/
+.idea/
+**/.DS_Store

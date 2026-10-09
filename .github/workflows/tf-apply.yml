@@ -1,0 +1,73 @@
+name: "Terraform Main Apply"
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "terraform/**"
+      - ".github/workflows/tf-apply.yml"
+  workflow_dispatch:
+
+# Applies queue instead of cancelling each other: an apply interrupted mid-flight can leave
+# partially applied changes and a held state lock.
+concurrency:
+  group: tf-apply
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  terraform-apply:
+    name: "Terraform Apply"
+    # Skips cleanly until `make bootstrap` has set the GCP repository variables. Manual
+    # dispatches only apply the reviewed main branch, never an arbitrary ref.
+    if: vars.GCP_WIF_PROVIDER != '' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Generous on purpose: a timeout that kills Terraform mid-apply can leave the state locked.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      RESOURCE_PREFIX: ${{ vars.RESOURCE_PREFIX }}
+      TF_IN_AUTOMATION: "true"
+      TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+      TF_VAR_project_number: ${{ vars.GCP_PROJECT_NUMBER }}
+      TF_VAR_region: ${{ vars.GCP_REGION }}
+      TF_VAR_resource_prefix: ${{ vars.RESOURCE_PREFIX }}
+      TF_VAR_github_org: ${{ github.repository_owner }}
+      TF_VAR_github_repo: ${{ github.event.repository.name }}
+      TF_VAR_deployment_target: ${{ vars.DEPLOYMENT_TARGET || 'agent_runtime' }}
+      TF_VAR_enable_gemini_enterprise: ${{ vars.GEMINI_ENTERPRISE_APP_ID != '' }}
+      # Must stay "true": the variable defaults to false, which would destroy the WIF pool and
+      # CI/CD service account this workflow authenticates with (see terraform/variables.tf).
+      TF_VAR_enable_cicd: "true"
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Authenticate to Google Cloud via WIF
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_CICD_SA }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform -chdir=terraform init -input=false -backend-config="bucket=${GCP_PROJECT_ID}-${RESOURCE_PREFIX}-tfstate"
+
+      - name: Terraform Plan on Merge
+        run: terraform -chdir=terraform plan -no-color -input=false -lock-timeout=300s -out=main.tfplan
+
+      - name: Terraform Apply
+        run: terraform -chdir=terraform apply -no-color -input=false -lock-timeout=300s -auto-approve main.tfplan

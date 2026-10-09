@@ -1,0 +1,28 @@
+# Ruff configuration enforcing Google Python Style Guide conventions
+
+line-length = 100
+target-version = "py312"
+exclude = [".agents", "scratch"]
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "TID", # flake8-tidy-imports (absolute imports only, per the Google style guide)
+]
+ignore = []
+
+[lint.isort]
+known-first-party = ["app"]
+
+[lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

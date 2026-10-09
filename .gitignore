@@ -1,0 +1,110 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv
+.venv/
+venv/
+ENV/
+env/
+
+# Caches & Test artifacts
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+artifacts/
+
+# Distribution & packaging
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Environment variables & local configuration
+.env
+.env.*
+!.env.example
+.env.local
+.env.*.local
+
+# IDE & Operating System
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Logs
+*.log
+
+# ==============================================================================
+# Terraform & Infrastructure
+# ==============================================================================
+# Local execution and provider cache
+.terraform/
+**/.terraform/
+.terraform.lock.hcl
+
+# Terraform state files
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# State lock files
+.terraform.tfstate.lock.info
+
+# Variable definitions (contain sensitive project configuration and credentials)
+*.tfvars
+*.tfvars.json
+
+# Local overrides
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration and crash logs
+.terraformrc
+terraform.rc
+crash.log
+crash.*.log
+
+# ==============================================================================
+# Google Cloud & Service Account Credentials (Zero Static Key Policy)
+# ==============================================================================
+*serviceaccount*.json
+*service_account*.json
+*service-account*.json
+*-sa-key*.json
+*sa_key*.json
+*gcp_key*.json
+*gcp-key*.json
+*credentials*.json
+credentials.json
+service_account.json
+service-account.json
+key.json
+*.pem
+*.key
+secrets/
+
+# ==============================================================================
+# Agent Workspace Metadata & Claude Code Configuration
+# ==============================================================================
+.agents/
+scratch/
+.google-agents-cli/
+.claude/*
+!.claude/settings.json
+!.claude/agents/
+!.claude/commands/
+
+# Workload Identity Federation credential files emitted by google-github-actions/auth
+gha-creds-*.json
+
+# agents-cli deploy output (environment specific; regenerated on every deploy)
+deployment_metadata.json

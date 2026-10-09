@@ -1,0 +1,5 @@
+# Metrics graded by `agents-cli eval run` (see tests/eval/README.md).
+# Built-in Vertex AI metrics only, so no custom metric code needs maintaining or type-checking.
+metrics_to_run:
+  - final_response_quality
+  - safety
